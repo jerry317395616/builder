@@ -12,6 +12,7 @@ AI Provider / Builder AI Model row, editable afterwards like any other.
 import frappe
 from frappe import _
 
+from builder.ai.llm import NO_KEY
 from builder.ai.models import ModelRegistry
 
 PRESETS = [
@@ -207,14 +208,20 @@ def install_preset(
 	known = {m[0]: m[1] for m in preset["models"]}
 	for model_id in model_ids:
 		add_model(doc.name, doc.route_prefix, model_id, known.get(model_id, model_id))
+	# the rest of the shortlist lands switched off, so any of it can be turned on later
+	for model_id, label in known.items():
+		if model_id not in model_ids:
+			add_model(doc.name, doc.route_prefix, model_id, label, enabled=False)
 	ModelRegistry.clear_cache()
 	return doc.name
 
 
-def add_model(provider: str, route_prefix: str, model_id: str, label: str) -> None:
+def add_model(provider: str, route_prefix: str, model_id: str, label: str, enabled: bool = True) -> None:
+	"""Add the model, or switch an existing row on. A switched-off add leaves an existing row alone."""
 	full_name = f"{route_prefix}/{model_id}"
 	if frappe.db.exists("Builder AI Model", full_name):
-		frappe.db.set_value("Builder AI Model", full_name, "enabled", 1)
+		if enabled:
+			frappe.db.set_value("Builder AI Model", full_name, "enabled", 1)
 		return
 	frappe.get_doc(
 		{
@@ -222,7 +229,7 @@ def add_model(provider: str, route_prefix: str, model_id: str, label: str) -> No
 			"provider": provider,
 			"model_id": model_id,
 			"label": label,
-			"enabled": 1,
+			"enabled": int(enabled),
 		}
 	).insert(ignore_permissions=True)
 
@@ -249,7 +256,7 @@ def verify_key(preset: dict, api_key: str, api_base: str, model_id: str) -> dict
 			**overrides,
 			messages=[{"role": "user", "content": "Reply with OK"}],
 			max_tokens=5,
-			api_key=api_key or "not-needed",
+			api_key=api_key or NO_KEY,
 		)
 		return {"success": True, "severity": "ok", "message": _("Connected")}
 	except Exception as e:
